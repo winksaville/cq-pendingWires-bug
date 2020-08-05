@@ -53,5 +53,61 @@ the method [_addPendingWire()](https://github.com/CadQuery/cadquery/blob/cc1f8f3
 Which appends the `Wire` to ctx.pendingWires. The result is that the desired shape is created.
 See the shape on the right in the screenshot below:
 
-![](ss_pendingWires.png)
+![](ss_pendingWires-bug.png)
 
+Adam suggests using `toPending`, that works and processes both wires and edges.
+```
+(cq-dev) wink@3900x:~/prgs/CadQuery/projects/pendingWires-bug (master)
+$ cat -n use-toPending.py 
+     1	import cadquery as cq
+     2	
+     3	def dbg(wp: cq.Workplane, name=None):
+     4	    if name is None:
+     5	        name = str(id(wp))
+     6	    log(f"{name}: len({name}.objects)={len(wp.objects)} len({name}.ctx.pendingWires)={len(wp.ctx.pendingWires)}")
+     7	    for i in range(0, len(wp.objects)):
+     8	        log(f"{name} objects[{i}]: {str(id(wp.objects[i]))}")
+     9	    for i in range(0, len(wp.ctx.pendingWires)):
+    10	        log(f"{name} pendingWires[{i}]: {str(id(wp.ctx.pendingWires[i]))}")
+    11	
+    12	# The path that we'll sweep
+    13	path = cq.Workplane("XZ") .moveTo(0, 4) .radiusArc(endPoint=(4, 0), radius=4)
+    14	
+    15	# Sketch 1, 1 object, 1 wire pending
+    16	s1 = cq.Workplane("YZ").moveTo(0, 4).rect(2, 1)
+    17	dbg(s1, "s1")
+    18	
+    19	# Sketch 2, 1 object, 1 wire pending
+    20	s2 = cq.Workplane("XY").moveTo(4, 0).circle(0.5)
+    21	dbg(s2, "s2")
+    22	
+    23	# Use add s2 to s1, 1 object, 1 wire is pending
+    24	s1s2 = s1.add(s2)
+    25	dbg(s1s2, "s1s2")
+    26	
+    27	# Now do s1s2.toPending(), 2 objects, 3 wires pending
+    28	c = s1s2.toPending()
+    29	dbg(c, "c")
+    30	
+    31	# Doing another toPending, 2 objects, 5 wires pending
+    32	c5 = c.toPending()
+    33	dbg(c, "c5")
+    34	
+    35	# We now sweep, 1 object, 0 wires pending
+    36	r = c5.sweep(path, multisection=True)
+    37	dbg(r, "r")
+    38	show_object(r.translate((0, 0, 0)), "r")
+```
+But using `toPending()` has a similar problem as `each()` in that `toPending()`
+uses `extends()` to add the wires and edges which causes duplicates. In the
+code above I to two `toPending()` calls and we end up with `c5` having 5 pendingWires
+where as there are only two wire objects, s1 & s2. Luckily `sweep()` handles the
+duplication fine, but it doesn't smell right to me.
+
+Also, I find it weird that `each()` is adding pendingWires. But now doubly weird
+that since it add to pendingWires why not pendingEdges? In actual, fact why iterating
+over objects should there be any modifications of either pendingWires or pendingEdges?
+
+Here is the screenshot for use-toPending.py:
+
+![](./ss_use-toPending.png)
